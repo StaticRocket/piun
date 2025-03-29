@@ -4,6 +4,7 @@ import logging
 import argparse
 from pathlib import Path
 from piun.config import load_config
+from piun.check import check_images
 
 logger = logging.getLogger(__name__)
 
@@ -28,4 +29,4 @@ def main():
         logging.basicConfig(level=logging.ERROR)
 
     config = load_config(args.config)
-    print(load_config(args.config))
+    check_images(config)
