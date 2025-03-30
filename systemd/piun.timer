@@ -4,3 +4,6 @@ Description=Podman Image Update Notifier
 [Timer]
 OnUnitInactiveSec=12h
 RemainAfterElapse=no
+
+[Install]
+WantedBy=timers.target
