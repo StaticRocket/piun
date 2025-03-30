@@ -2,6 +2,9 @@
 
 import logging
 import subprocess
+import json
+
+from piun.db import PiunDatabase
 
 import apprise
 
@@ -22,39 +25,25 @@ def get_images():
     return images.split()
 
 
-def get_local_digest(image_name):
-    """Ask podman for the local image digest"""
-    command = ["podman", "image", "inspect", "--format", "{{.Digest}}", image_name]
-    try:
-        digest = subprocess.run(
-            command, check=True, capture_output=True, text=True
-        ).stdout.strip()
-        logger.info("Image %s has local digest of %s", image_name, digest)
-    except subprocess.CalledProcessError:
-        logger.warning("Unable to get local digest for %s", image_name)
-        digest = ""
-    return digest
-
-
-def get_remote_digest(image_name):
-    """Ask the remote repository for an image digest"""
+def get_remote_layers(image_name):
+    """Ask the remote repository for layer info"""
     command = [
         "skopeo",
         "inspect",
         "-n",
-        "--format",
-        "{{.Digest}}",
         f"docker://{image_name}",
     ]
     try:
         digest = subprocess.run(
             command, check=True, capture_output=True, text=True
         ).stdout.strip()
-        logger.info("Image %s has remote digest of %s", image_name, digest)
+        data = json.loads(digest)
+        layers = data["Layers"]
+        logger.info("Image %s has remote layers of %s", image_name, layers)
     except subprocess.CalledProcessError:
         logger.warning("Unable to get remote digest for %s", image_name)
-        digest = ""
-    return digest
+        layers = []
+    return layers
 
 
 def split_digest(digest):
@@ -69,24 +58,22 @@ def split_digest(digest):
     return (digest_type, digest_data)
 
 
-def digests_match(digest_a, digest_b):
-    """Compare two image digest strings"""
-    type_a, data_a = split_digest(digest_a)
-    type_b, data_b = split_digest(digest_b)
-    if type_a != type_b:
-        logger.info("Digest types changed, assuming update")
-        return False
-    if data_a != data_b:
-        logger.info("Change in digest data detected")
-        return False
-    return True
-
-
-def image_update_available(image):
+def image_update_available(image, db):
     """Check if image update is available"""
-    local = get_local_digest(image)
-    remote = get_remote_digest(image)
-    return not digests_match(local, remote)
+    update = False
+    remote = get_remote_layers(image)
+    for layer in remote:
+        hash_type, hash_value = split_digest(layer)
+        new = db.add_unique_hash(hash_type, hash_value, image)
+        logger.info(
+            "Image: '%s' hash: '%s' type: '%s' unique: '%s'",
+            image,
+            hash_value,
+            hash_type,
+            new,
+        )
+        update |= new
+    return update
 
 
 def setup_notifier(config):
@@ -99,8 +86,9 @@ def setup_notifier(config):
 def check_images(config):
     """Process all images and send notifications if applicable"""
     notifier = setup_notifier(config)
+    db = PiunDatabase()
     for image in get_images():
-        if image_update_available(image):
+        if image_update_available(image, db):
             notifier.notify(
                 title=f"Update available for {image}",
                 body="An updated version of this image was found on the remote repository.",
