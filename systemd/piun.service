@@ -1,0 +1,9 @@
+[Unit]
+Description=Podman Image Update Notifier
+
+[Service]
+Type=simple
+ExecStart=/path/to/piun
+
+[Install]
+WantedBy=default.target

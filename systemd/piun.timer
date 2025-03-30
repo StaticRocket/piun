@@ -1,0 +1,6 @@
+[Unit]
+Description=Podman Image Update Notifier
+
+[Timer]
+OnUnitInactiveSec=12h
+RemainAfterElapse=no
