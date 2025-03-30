@@ -8,7 +8,11 @@ import apprise
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_PATHS = [Path(os.environ.get("XDG_CONFIG_HOME")).joinpath("piun/piun.yml")]
+DEFAULT_PATHS = [
+    Path(os.environ.get("XDG_CONFIG_HOME", "~/.config"))
+    .expanduser()
+    .joinpath("piun/piun.yml")
+]
 
 
 def load_config(override_path):
