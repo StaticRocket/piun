@@ -14,6 +14,7 @@ class PiunDatabase:
 
     db = None
     layer_table_name = "layer"
+    staging_table_name = "staging"
     hash_field_name = "hash"
     hash_type_field_name = "hash_type"
     image_field_name = "image"
@@ -25,10 +26,12 @@ class PiunDatabase:
         realpath = database_path.expanduser()
         realpath.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
         self.db = sqlite3.connect(realpath.as_posix())
-        self.create_layer_table()
+        self.create_layer_table(self.layer_table_name)
+        self.create_layer_table(self.staging_table_name)
 
     def __del__(self):
         if self.db:
+            self.switch_tables()
             self.db.commit()
             self.db.close()
 
@@ -40,17 +43,17 @@ class PiunDatabase:
         if not table.fetchone():
             self.db.execute(f"CREATE TABLE {table_name}({', '.join(params)})")
 
-    def create_layer_table(self):
-        """Create the layer table with the hash, hash_type, and image fields"""
+    def create_layer_table(self, table_name):
+        """Create a layer table with the hash, hash_type, and image fields"""
         self.create_table(
-            self.layer_table_name,
+            table_name,
             self.hash_type_field_name,
             self.hash_field_name,
             self.image_field_name,
         )
 
-    def hash_in_table(self, hash_type, hash_value, image_name):
-        """Check the table for a given hash and return if we have an entry"""
+    def hash_in_layer_table(self, hash_type, hash_value, image_name):
+        """Check the layer table for a given hash and return if we have an entry"""
         hash_row = self.db.execute(
             f"""SELECT * FROM {self.layer_table_name}
                 WHERE {self.hash_type_field_name}='{hash_type}'
@@ -61,24 +64,23 @@ class PiunDatabase:
             return True
         return False
 
-    def add_hash(self, hash_type, hash_value, image_name):
-        """Add a hash row to the table"""
+    def add_hash_to_staging_table(self, hash_type, hash_value, image_name):
+        """Add a hash row to the staging table. We will not commit these changes until later."""
         self.db.execute(
-            f"""INSERT INTO {self.layer_table_name} VALUES
+            f"""INSERT INTO {self.staging_table_name} VALUES
             ('{hash_type}', '{hash_value}', '{image_name}')"""
         )
-        self.db.commit()
 
     def add_unique_hash(self, hash_type, hash_value, image_name):
-        """Add a unique hash to the table, return false if it was not unique"""
-        if self.hash_in_table(hash_type, hash_value, image_name):
+        """Add a hash to the staging table, return whether it was unique"""
+        self.add_hash_to_staging_table(hash_type, hash_value, image_name)
+        if self.hash_in_layer_table(hash_type, hash_value, image_name):
             return False
-        self.add_hash(hash_type, hash_value, image_name)
         return True
 
-    def clear_old_hashes(self, image_name):
-        """Remove the old hashes associated with the given image"""
+    def switch_tables(self):
+        """Remove the old layer table and replace it with the staging table"""
+        self.db.execute(f"""DROP TABLE IF EXISTS {self.layer_table_name}""")
         self.db.execute(
-            f"""DELETE FROM {self.layer_table_name}
-            WHERE {self.image_field_name}='{image_name}'"""
+            f"""ALTER TABLE {self.staging_table_name} RENAME TO {self.layer_table_name}"""
         )
